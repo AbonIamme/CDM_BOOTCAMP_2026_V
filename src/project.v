@@ -105,6 +105,7 @@ module tt_um_brick_breaker (
   integer i;
   reg signed [3:0] new_dx, new_dy;
   reg [9:0] bx, by;
+  reg hit_this_frame;
 
     always @(posedge clk) begin
     if (~rst_n) begin
@@ -143,7 +144,6 @@ module tt_um_brick_breaker (
       end
 
       // brick collisions (Yosys Synthesizable Loop)
-      reg hit_this_frame;
       hit_this_frame = 1'b0; // Reset flag at the start of the frame tick
 
       for (i = 0; i < BRICK_COUNT; i = i + 1) begin
