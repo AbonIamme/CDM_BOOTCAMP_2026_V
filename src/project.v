@@ -107,7 +107,7 @@ module tt_um_brick_breaker (
   reg [9:0] bx, by;
   reg hit_this_frame;
 
-    always @(posedge clk) begin
+  always @(posedge clk) begin
     if (~rst_n) begin
       paddle_x    <= (H_DISPLAY - PADDLE_W) / 2;
       ball_x      <= H_DISPLAY/2 - BALL_SIZE/2;
@@ -143,8 +143,8 @@ module tt_um_brick_breaker (
       if (ball_dy > 0 &&
           (ball_y + BALL_SIZE >= PADDLE_Y) && (ball_y <= PADDLE_Y + PADDLE_H) &&
           (ball_x + BALL_SIZE >= paddle_x) && (ball_x <= paddle_x + PADDLE_W)) begin
-        new_dy = -BALL_SPEED; // Force direction UP completely independent of state
-        hit_this_frame = 1'b1; // Mark hit to bypass brick checks this frame
+        new_dy         = -BALL_SPEED; // Force direction UP completely independent of state
+        hit_this_frame = 1'b1;        // Mark hit to bypass brick checks this frame
       end
 
       // brick collisions (Yosys Synthesizable Loop)
@@ -155,8 +155,8 @@ module tt_um_brick_breaker (
           if (ball_x + BALL_SIZE >= bx && ball_x <= bx + BRICK_W &&
               ball_y + BALL_SIZE >= by && ball_y <= by + BRICK_H) begin
             brick_alive[i] <= 1'b0;
-            new_dy = -new_dy; // Reverse current calculated direction cleanly
-            hit_this_frame = 1'b1; // Flag ensures other iterations are ignored
+            new_dy         = -new_dy; // Reverse current calculated direction cleanly
+            hit_this_frame = 1'b1;    // Flag ensures other iterations are ignored
           end
         end
       end
@@ -176,8 +176,8 @@ module tt_um_brick_breaker (
         ball_dx <= new_dx;
         ball_dy <= new_dy;
       end
-
-
+    end
+  end
 
   // ---------------- rendering ----------------
   wire ball_on = (pix_x >= ball_x) && (pix_x < ball_x + BALL_SIZE) &&
@@ -187,8 +187,8 @@ module tt_um_brick_breaker (
                    (pix_y >= PADDLE_Y) && (pix_y < PADDLE_Y + PADDLE_H);
 
   wire in_brick_field = (pix_x >= BRICK_START_X) && (pix_y >= BRICK_START_Y) &&
-                         (pix_x < BRICK_START_X + BRICK_COLS*(BRICK_W+BRICK_GAP)) &&
-                         (pix_y < BRICK_START_Y + BRICK_ROWS*(BRICK_H+BRICK_GAP));
+                        (pix_x < BRICK_START_X + BRICK_COLS*(BRICK_W+BRICK_GAP)) &&
+                        (pix_y < BRICK_START_Y + BRICK_ROWS*(BRICK_H+BRICK_GAP));
 
   wire [9:0] brick_col_pos = (pix_x - BRICK_START_X) % (BRICK_W + BRICK_GAP);
   wire [9:0] brick_row_pos = (pix_y - BRICK_START_Y) % (BRICK_H + BRICK_GAP);
