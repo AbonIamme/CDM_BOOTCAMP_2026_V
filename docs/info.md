@@ -1,7 +1,3 @@
-# Brick Breaker VGA Game
-
-A standalone 2D Brick Breaker game written in Verilog, designed for Tiny Tapeout. It outputs VGA video signals (640x480 resolution) and accepts direct digital input controls for real-time player movement.
-
 ## How it works
 
 - **VGA Generator:** Uses an external timing generator module (`hvsync_generator`) to generate standard 640x480 @ 60Hz video timing signals (`hsync`, `vsync`, `video_active`, `pix_x`, `pix_y`).
