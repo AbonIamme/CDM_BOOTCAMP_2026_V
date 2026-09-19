@@ -8,6 +8,19 @@
  *   If both are held, the paddle follows whichever button had its
  *   rising edge most recently ("latest input wins").
  *   ui_in[7:2] are unused.
+ *
+ * FIX NOTES (paddle bounce):
+ *   1. The paddle/ball overlap test now uses the same half-open pixel
+ *      ranges as the renderer ([x, x+W)), so the hitbox exactly matches
+ *      what's drawn instead of being off by a pixel at the edges.
+ *   2. A small vertical tolerance (BALL_SPEED) is added to the collision
+ *      band so a real hit can't be lost to frame-to-frame discretization.
+ *   3. The bounce now imparts horizontal speed based on where the ball
+ *      hit the paddle (classic Breakout behavior). Previously dx was
+ *      never touched by a paddle or brick hit, so the ball followed a
+ *      perfectly fixed, deterministic diagonal path with a ~5+ second
+ *      round trip and only a ~100ms window over the paddle each pass -
+ *      making a correctly-placed paddle still miss almost every time.
  */
 
 `default_nettype none
@@ -106,6 +119,7 @@ module tt_um_brick_breaker (
   reg signed [3:0] new_dx, new_dy;
   reg [9:0] bx, by;
   reg hit_this_frame;
+  reg [6:0] paddle_hit_offset; // where on the paddle the ball landed (0..PADDLE_W-1)
 
   always @(posedge clk) begin
     if (~rst_n) begin
@@ -139,12 +153,34 @@ module tt_um_brick_breaker (
       // Reset hit flag for this frame tick
       hit_this_frame = 1'b0;
 
-      // Directional Plane Bounce: Ensures hit registers cleanly 
+      // paddle bounce: exact half-open-interval overlap test, matching the
+      // renderer, with a small vertical tolerance so a genuine hit can't
+      // slip between two discrete frame samples.
       if (ball_dy > 0 &&
-          (ball_y + BALL_SIZE >= PADDLE_Y) && (ball_y + BALL_SIZE <= PADDLE_Y + PADDLE_H + BALL_SPEED) &&
-          (ball_x + BALL_SIZE >= paddle_x) && (ball_x <= paddle_x + PADDLE_W)) begin
-        new_dy         = -BALL_SPEED; // Send ball upward
-        hit_this_frame = 1'b1;        // Disable brick hits this frame
+          (ball_y < PADDLE_Y + PADDLE_H + BALL_SPEED) &&
+          (ball_y + BALL_SIZE > PADDLE_Y) &&
+          (ball_x < paddle_x + PADDLE_W) &&
+          (ball_x + BALL_SIZE > paddle_x)) begin
+
+        // where along the paddle did we land? clamp into [0, PADDLE_W-1]
+        if (ball_x <= paddle_x)
+          paddle_hit_offset = 0;
+        else if (ball_x - paddle_x >= PADDLE_W)
+          paddle_hit_offset = PADDLE_W - 1;
+        else
+          paddle_hit_offset = ball_x - paddle_x;
+
+        new_dy = -BALL_SPEED; // always bounce upward
+        // left third of paddle -> steer left, right third -> steer right,
+        // middle third -> keep going straight up/down as before.
+        if (paddle_hit_offset < PADDLE_W / 3)
+          new_dx = -BALL_SPEED;
+        else if (paddle_hit_offset >= (2 * PADDLE_W) / 3)
+          new_dx = BALL_SPEED;
+        else
+          new_dx = ball_dx;
+
+        hit_this_frame = 1'b1;  // Mark hit to bypass brick checks this frame
       end
 
       // brick collisions (Yosys Synthesizable Loop)
@@ -155,8 +191,8 @@ module tt_um_brick_breaker (
           if (ball_x + BALL_SIZE >= bx && ball_x <= bx + BRICK_W &&
               ball_y + BALL_SIZE >= by && ball_y <= by + BRICK_H) begin
             brick_alive[i] <= 1'b0;
-            new_dy         = -new_dy; // Reverse direction clean
-            hit_this_frame = 1'b1;    // Ignore remaining array passes
+            new_dy         = -new_dy; // Reverse current calculated direction cleanly
+            hit_this_frame = 1'b1;    // Flag ensures other iterations are ignored
           end
         end
       end
@@ -170,7 +206,7 @@ module tt_um_brick_breaker (
         if (brick_alive == 0)
           brick_alive <= {BRICK_COUNT{1'b1}};
       end else begin
-        // Apply position translation out of boundary lock zone
+        // Apply calculated updates directly to positions to clear boundary limits
         ball_x  <= ball_x + new_dx;
         ball_y  <= ball_y + new_dy;
         ball_dx <= new_dx;
@@ -199,12 +235,6 @@ module tt_um_brick_breaker (
   wire brick_on = in_brick_field && (brick_col_pos < BRICK_W) && (brick_row_pos < BRICK_H) &&
                   brick_alive[brick_index];
 
-  // ---------------- Bottom Left Telemetry Panel ----------------
-  // Row 1 (y: 468 to 471): Displays a dynamic block representing ball_x
-  // Row 2 (y: 473 to 476): Displays a dynamic block representing paddle_x
-  wire ball_telemetry_on   = (pix_y >= 10'd468) && (pix_y <= 10'd471) && (pix_x >= 10'd10) && (pix_x <= 10'd10 + ball_x[9:2]);
-  wire paddle_telemetry_on = (pix_y >= 10'd473) && (pix_y <= 10'd476) && (pix_x >= 10'd10) && (pix_x <= 10'd10 + paddle_x[9:2]);
-
   // combinational color choice (1 bit per channel)
   reg r, g, b;
   always @(*) begin
@@ -214,10 +244,6 @@ module tt_um_brick_breaker (
         r = 1; g = 1; b = 1;              // white ball
       end else if (paddle_on) begin
         g = 1; b = 1;                     // cyan paddle
-      end else if (ball_telemetry_on) begin
-        r = 1; g = 0; b = 0;              // Red bar represents ball position
-      end else if (paddle_telemetry_on) begin
-        r = 0; g = 1; b = 0;              // Green bar represents paddle position
       end else if (brick_on) begin
         case (brick_row)
           0: r = 1;                       // red
