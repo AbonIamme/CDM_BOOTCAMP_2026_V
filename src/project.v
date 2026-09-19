@@ -142,21 +142,23 @@ module tt_um_brick_breaker (
         new_dy = -ball_dy;
       end
 
-      // brick collisions (Optimized to process only 1 hit per frame)
-      begin : brick_collision_block
-        for (i = 0; i < BRICK_COUNT; i = i + 1) begin
-          if (brick_alive[i]) begin
-            bx = BRICK_START_X + (i % BRICK_COLS) * (BRICK_W + BRICK_GAP);
-            by = BRICK_START_Y + (i / BRICK_COLS) * (BRICK_H + BRICK_GAP);
-            if (ball_x + BALL_SIZE >= bx && ball_x <= bx + BRICK_W &&
-                ball_y + BALL_SIZE >= by && ball_y <= by + BRICK_H) begin
-              brick_alive[i] <= 1'b0;
-              new_dy = -ball_dy;
-              disable brick_collision_block; // Stop checking other bricks this frame
-            end
+      // brick collisions (Yosys Synthesizable Loop)
+      reg hit_this_frame;
+      hit_this_frame = 1'b0; // Reset flag at the start of the frame tick
+
+      for (i = 0; i < BRICK_COUNT; i = i + 1) begin
+        if (brick_alive[i] && !hit_this_frame) begin
+          bx = BRICK_START_X + (i % BRICK_COLS) * (BRICK_W + BRICK_GAP);
+          by = BRICK_START_Y + (i / BRICK_COLS) * (BRICK_H + BRICK_GAP);
+          if (ball_x + BALL_SIZE >= bx && ball_x <= bx + BRICK_W &&
+              ball_y + BALL_SIZE >= by && ball_y <= by + BRICK_H) begin
+            brick_alive[i] <= 1'b0;
+            new_dy = -ball_dy;
+            hit_this_frame = 1'b1; // Flag ensures other iterations are ignored
           end
         end
       end
+
 
       // --- ball lost off bottom, or level cleared: respawn ---
       if (ball_y + BALL_SIZE >= V_DISPLAY || brick_alive == 0) begin
