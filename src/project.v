@@ -199,6 +199,12 @@ module tt_um_brick_breaker (
   wire brick_on = in_brick_field && (brick_col_pos < BRICK_W) && (brick_row_pos < BRICK_H) &&
                   brick_alive[brick_index];
 
+  // ---------------- Bottom Left Telemetry Panel ----------------
+  // Row 1 (y: 468 to 471): Displays a dynamic block representing ball_x
+  // Row 2 (y: 473 to 476): Displays a dynamic block representing paddle_x
+  wire ball_telemetry_on   = (pix_y >= 10'd468) && (pix_y <= 10'd471) && (pix_x >= 10'd10) && (pix_x <= 10'd10 + ball_x[9:2]);
+  wire paddle_telemetry_on = (pix_y >= 10'd473) && (pix_y <= 10'd476) && (pix_x >= 10'd10) && (pix_x <= 10'd10 + paddle_x[9:2]);
+
   // combinational color choice (1 bit per channel)
   reg r, g, b;
   always @(*) begin
@@ -208,6 +214,10 @@ module tt_um_brick_breaker (
         r = 1; g = 1; b = 1;              // white ball
       end else if (paddle_on) begin
         g = 1; b = 1;                     // cyan paddle
+      end else if (ball_telemetry_on) begin
+        r = 1; g = 0; b = 0;              // Red bar represents ball position
+      end else if (paddle_telemetry_on) begin
+        r = 0; g = 1; b = 0;              // Green bar represents paddle position
       end else if (brick_on) begin
         case (brick_row)
           0: r = 1;                       // red
