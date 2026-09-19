@@ -214,14 +214,73 @@ module tt_um_brick_breaker (
   // registered output, duplicated into the 2-bit R/G/B PMOD channels
   always @(posedge clk) begin
     if (~rst_n) begin
-      R <= 0;
-      G <= 0;
-      B <= 0;
-    end else begin
-      R <= {r, r};
-      G <= {g, g};
-      B <= {b, b};
+      paddle_x    <= (H_DISPLAY - PADDLE_W) / 2;
+      ball_x      <= H_DISPLAY/2 - BALL_SIZE/2;
+      ball_y      <= V_DISPLAY/2;
+      ball_dx     <= BALL_SPEED;
+      ball_dy     <= -BALL_SPEED;
+      brick_alive <= {BRICK_COUNT{1'b1}};
+    end else if (frame_tick) begin
+
+      // --- paddle movement ---
+      if (move_left && paddle_x > 0)
+        paddle_x <= paddle_x - PADDLE_SPEED;
+      else if (move_right && paddle_x < (H_DISPLAY - PADDLE_W))
+        paddle_x <= paddle_x + PADDLE_SPEED;
+
+      // --- figure out next ball direction ---
+      new_dx = ball_dx;
+      new_dy = ball_dy;
+
+      // side walls
+      if ((ball_dx < 0 && ball_x <= BALL_SPEED) ||
+          (ball_dx > 0 && ball_x >= H_DISPLAY - BALL_SIZE - BALL_SPEED))
+        new_dx = -ball_dx;
+
+      // top wall
+      if (ball_dy < 0 && ball_y <= BALL_SPEED)
+        new_dy = -ball_dy;
+
+      // paddle bounce: Look ahead tracking (will it cross PADDLE_Y next step?)
+      if (ball_dy > 0 &&
+          (ball_y + BALL_SIZE >= PADDLE_Y) && (ball_y <= PADDLE_Y + PADDLE_H) &&
+          (ball_x + BALL_SIZE >= paddle_x) && (ball_x <= paddle_x + PADDLE_W)) begin
+        new_dy = -ball_dy;
+      end
+
+      // brick collisions (Optimized to process only 1 hit per frame)
+      begin : brick_collision_block
+        for (i = 0; i < BRICK_COUNT; i = i + 1) begin
+          if (brick_alive[i]) begin
+            bx = BRICK_START_X + (i % BRICK_COLS) * (BRICK_W + BRICK_GAP);
+            by = BRICK_START_Y + (i / BRICK_COLS) * (BRICK_H + BRICK_GAP);
+            if (ball_x + BALL_SIZE >= bx && ball_x <= bx + BRICK_W &&
+                ball_y + BALL_SIZE >= by && ball_y <= by + BRICK_H) begin
+              brick_alive[i] <= 1'b0;
+              new_dy = -ball_dy;
+              disable brick_collision_block; // Stop checking other bricks this frame
+            end
+          end
+        end
+      end
+
+      // --- ball lost off bottom, or level cleared: respawn ---
+      if (ball_y + BALL_SIZE >= V_DISPLAY || brick_alive == 0) begin
+        ball_x  <= H_DISPLAY/2 - BALL_SIZE/2;
+        ball_y  <= V_DISPLAY/2;
+        ball_dx <= BALL_SPEED;
+        ball_dy <= -BALL_SPEED;
+        if (brick_alive == 0)
+          brick_alive <= {BRICK_COUNT{1'b1}};
+      end else begin
+        // Apply calculated updates directly to positions to clear boundary limits
+        ball_x  <= ball_x + new_dx;
+        ball_y  <= ball_y + new_dy;
+        ball_dx <= new_dx;
+        ball_dy <= new_dy;
+      end
     end
   end
+
 
 endmodule
