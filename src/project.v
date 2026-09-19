@@ -106,113 +106,7 @@ module tt_um_brick_breaker (
   reg signed [3:0] new_dx, new_dy;
   reg [9:0] bx, by;
 
-  always @(posedge clk) begin
-    if (~rst_n) begin
-      paddle_x    <= (H_DISPLAY - PADDLE_W) / 2;
-      ball_x      <= H_DISPLAY/2 - BALL_SIZE/2;
-      ball_y      <= V_DISPLAY/2;
-      ball_dx     <= BALL_SPEED;
-      ball_dy     <= -BALL_SPEED;
-      brick_alive <= {BRICK_COUNT{1'b1}};
-    end else if (frame_tick) begin
-
-      // --- paddle movement ---
-      if (move_left && paddle_x > 0)
-        paddle_x <= paddle_x - PADDLE_SPEED;
-      else if (move_right && paddle_x < (H_DISPLAY - PADDLE_W))
-        paddle_x <= paddle_x + PADDLE_SPEED;
-
-      // --- figure out next ball direction ---
-      new_dx = ball_dx;
-      new_dy = ball_dy;
-
-      // side walls
-      if ((ball_dx < 0 && ball_x <= BALL_SPEED) ||
-          (ball_dx > 0 && ball_x >= H_DISPLAY - BALL_SIZE - BALL_SPEED))
-        new_dx = -ball_dx;
-
-      // top wall
-      if (ball_dy < 0 && ball_y <= BALL_SPEED)
-        new_dy = -ball_dy;
-
-      // paddle bounce
-      if (ball_dy > 0 &&
-          ball_y + BALL_SIZE >= PADDLE_Y && ball_y + BALL_SIZE <= PADDLE_Y + PADDLE_H &&
-          ball_x + BALL_SIZE >= paddle_x && ball_x <= paddle_x + PADDLE_W)
-        new_dy = -ball_dy;
-
-      // brick collisions
-      for (i = 0; i < BRICK_COUNT; i = i + 1) begin
-        if (brick_alive[i]) begin
-          bx = BRICK_START_X + (i % BRICK_COLS) * (BRICK_W + BRICK_GAP);
-          by = BRICK_START_Y + (i / BRICK_COLS) * (BRICK_H + BRICK_GAP);
-          if (ball_x + BALL_SIZE >= bx && ball_x <= bx + BRICK_W &&
-              ball_y + BALL_SIZE >= by && ball_y <= by + BRICK_H) begin
-            brick_alive[i] <= 1'b0;
-            new_dy = -ball_dy;
-          end
-        end
-      end
-
-      // --- ball lost off bottom, or level cleared: respawn ---
-      if (ball_y + BALL_SIZE >= V_DISPLAY || brick_alive == 0) begin
-        ball_x  <= H_DISPLAY/2 - BALL_SIZE/2;
-        ball_y  <= V_DISPLAY/2;
-        ball_dx <= BALL_SPEED;
-        ball_dy <= -BALL_SPEED;
-        if (brick_alive == 0)
-          brick_alive <= {BRICK_COUNT{1'b1}};
-      end else begin
-        ball_dx <= new_dx;
-        ball_dy <= new_dy;
-        ball_x  <= ball_x + new_dx;
-        ball_y  <= ball_y + new_dy;
-      end
-    end
-  end
-
-  // ---------------- rendering ----------------
-  wire ball_on = (pix_x >= ball_x) && (pix_x < ball_x + BALL_SIZE) &&
-                 (pix_y >= ball_y) && (pix_y < ball_y + BALL_SIZE);
-
-  wire paddle_on = (pix_x >= paddle_x) && (pix_x < paddle_x + PADDLE_W) &&
-                   (pix_y >= PADDLE_Y) && (pix_y < PADDLE_Y + PADDLE_H);
-
-  wire in_brick_field = (pix_x >= BRICK_START_X) && (pix_y >= BRICK_START_Y) &&
-                         (pix_x < BRICK_START_X + BRICK_COLS*(BRICK_W+BRICK_GAP)) &&
-                         (pix_y < BRICK_START_Y + BRICK_ROWS*(BRICK_H+BRICK_GAP));
-
-  wire [9:0] brick_col_pos = (pix_x - BRICK_START_X) % (BRICK_W + BRICK_GAP);
-  wire [9:0] brick_row_pos = (pix_y - BRICK_START_Y) % (BRICK_H + BRICK_GAP);
-  wire [3:0] brick_col     = (pix_x - BRICK_START_X) / (BRICK_W + BRICK_GAP);
-  wire [3:0] brick_row     = (pix_y - BRICK_START_Y) / (BRICK_H + BRICK_GAP);
-  wire [5:0] brick_index   = brick_row * BRICK_COLS + brick_col;
-
-  wire brick_on = in_brick_field && (brick_col_pos < BRICK_W) && (brick_row_pos < BRICK_H) &&
-                  brick_alive[brick_index];
-
-  // combinational color choice (1 bit per channel)
-  reg r, g, b;
-  always @(*) begin
-    r = 0; g = 0; b = 0;
-    if (video_active) begin
-      if (ball_on) begin
-        r = 1; g = 1; b = 1;              // white ball
-      end else if (paddle_on) begin
-        g = 1; b = 1;                     // cyan paddle
-      end else if (brick_on) begin
-        case (brick_row)
-          0: r = 1;                       // red
-          1: begin r = 1; g = 1; end      // yellow
-          2: g = 1;                       // green
-          default: b = 1;                 // blue
-        endcase
-      end
-    end
-  end
-
-  // registered output, duplicated into the 2-bit R/G/B PMOD channels
-  always @(posedge clk) begin
+    always @(posedge clk) begin
     if (~rst_n) begin
       paddle_x    <= (H_DISPLAY - PADDLE_W) / 2;
       ball_x      <= H_DISPLAY/2 - BALL_SIZE/2;
@@ -282,5 +176,58 @@ module tt_um_brick_breaker (
     end
   end
 
+
+  // ---------------- rendering ----------------
+  wire ball_on = (pix_x >= ball_x) && (pix_x < ball_x + BALL_SIZE) &&
+                 (pix_y >= ball_y) && (pix_y < ball_y + BALL_SIZE);
+
+  wire paddle_on = (pix_x >= paddle_x) && (pix_x < paddle_x + PADDLE_W) &&
+                   (pix_y >= PADDLE_Y) && (pix_y < PADDLE_Y + PADDLE_H);
+
+  wire in_brick_field = (pix_x >= BRICK_START_X) && (pix_y >= BRICK_START_Y) &&
+                         (pix_x < BRICK_START_X + BRICK_COLS*(BRICK_W+BRICK_GAP)) &&
+                         (pix_y < BRICK_START_Y + BRICK_ROWS*(BRICK_H+BRICK_GAP));
+
+  wire [9:0] brick_col_pos = (pix_x - BRICK_START_X) % (BRICK_W + BRICK_GAP);
+  wire [9:0] brick_row_pos = (pix_y - BRICK_START_Y) % (BRICK_H + BRICK_GAP);
+  wire [3:0] brick_col     = (pix_x - BRICK_START_X) / (BRICK_W + BRICK_GAP);
+  wire [3:0] brick_row     = (pix_y - BRICK_START_Y) / (BRICK_H + BRICK_GAP);
+  wire [5:0] brick_index   = brick_row * BRICK_COLS + brick_col;
+
+  wire brick_on = in_brick_field && (brick_col_pos < BRICK_W) && (brick_row_pos < BRICK_H) &&
+                  brick_alive[brick_index];
+
+  // combinational color choice (1 bit per channel)
+  reg r, g, b;
+  always @(*) begin
+    r = 0; g = 0; b = 0;
+    if (video_active) begin
+      if (ball_on) begin
+        r = 1; g = 1; b = 1;              // white ball
+      end else if (paddle_on) begin
+        g = 1; b = 1;                     // cyan paddle
+      end else if (brick_on) begin
+        case (brick_row)
+          0: r = 1;                       // red
+          1: begin r = 1; g = 1; end      // yellow
+          2: g = 1;                       // green
+          default: b = 1;                 // blue
+        endcase
+      end
+    end
+  end
+
+  // registered output, duplicated into the 2-bit R/G/B PMOD channels
+  always @(posedge clk) begin
+    if (~rst_n) begin
+      R <= 0;
+      G <= 0;
+      B <= 0;
+    end else begin
+      R <= {r, r};
+      G <= {g, g};
+      B <= {b, b};
+    end
+  end
 
 endmodule
