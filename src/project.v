@@ -1,7 +1,7 @@
 `default_nettype none
 
 module tt_um_brick_breaker (
-    input  wire [7:0] ui_in,    // Unused inputs
+    input  wire [7:0] ui_in,    // Input buttons: ui_in[1] = Left, ui_in[2] = Right
     output wire [7:0] uo_out,   // Dedicated outputs (VGA)
     input  wire [7:0] uio_in,   // Unused
     output wire [7:0] uio_out,  // Unused
@@ -25,7 +25,7 @@ module tt_um_brick_breaker (
   assign uio_oe  = 8'b0;
 
   // Suppress unused signals warning
-  wire _unused_ok = &{ena, uio_in, ui_in};
+  wire _unused_ok = &{ena, uio_in, ui_in[0], ui_in[7:3]};
 
   hvsync_generator vga_sync_gen (
       .clk(clk),
@@ -44,7 +44,7 @@ module tt_um_brick_breaker (
   localparam PADDLE_W     = 64;
   localparam PADDLE_H     = 8;
   localparam PADDLE_Y     = 456;
-  localparam PADDLE_SPEED = 3;  // Slightly faster than ball to track effectively
+  localparam PADDLE_SPEED = 4;  // Responsive paddle movement speed
 
   localparam BALL_SIZE  = 6;
   localparam BALL_SPEED = 2;
@@ -58,49 +58,89 @@ module tt_um_brick_breaker (
   localparam BRICK_START_X = 19;
   localparam BRICK_START_Y = 40;
 
-  // ---------------- Game state ----------------
+  // ---------------- Game state registers ----------------
   reg [9:0] paddle_x;
   reg [9:0] ball_x, ball_y;
   reg signed [3:0] ball_dx, ball_dy;
   reg [BRICK_COUNT-1:0] brick_alive;
 
-  // Frame tick fires once at the start of vertical blanking
-  wire frame_tick = (pix_x == 0) && (pix_y == V_DISPLAY);
-
-  integer i;
+  // ---------------- Input Synchronization & Last-Input Priority Tracking ----------------
+  reg btn_left_d1,  btn_left_sync;
+  reg btn_right_d1, btn_right_sync;
+  reg last_dir; // 0 = Left, 1 = Right
 
   always @(posedge clk) begin
     if (~rst_n) begin
-      paddle_x    <= (H_DISPLAY - PADDLE_W) / 2;
-      ball_x      <= H_DISPLAY/2 - BALL_SIZE/2;
-      ball_y      <= V_DISPLAY/2;
-      ball_dx     <= BALL_SPEED;
-      ball_dy     <= -BALL_SPEED;
+      btn_left_d1    <= 1'b0;
+      btn_left_sync  <= 1'b0;
+      btn_right_d1   <= 1'b0;
+      btn_right_sync <= 1'b0;
+      last_dir       <= 1'b1; // Default right
+    end else begin
+      // 2-flip-flop synchronizers to prevent metastability from asynchronous button presses
+      btn_left_d1   <= ui_in[1];
+      btn_left_sync <= btn_left_d1;
+
+      btn_right_d1   <= ui_in[2];
+      btn_right_sync <= btn_right_d1;
+
+      // Track latest press event to determine priority when both are held
+      if (btn_left_sync && !btn_left_d1) begin
+        last_dir <= 1'b0; // Left pressed last
+      end else if (btn_right_sync && !btn_right_d1) begin
+        last_dir <= 1'b1; // Right pressed last
+      end
+    end
+  end
+
+  // ---------------- Frame Tick (VSYNC Edge Detector) ----------------
+  reg vsync_d;
+  always @(posedge clk) begin
+    if (~rst_n)
+      vsync_d <= 1'b1;
+    else
+      vsync_d <= vsync;
+  end
+
+  wire frame_tick = vsync_d && !vsync; // Falling edge of VSYNC
+
+  // ---------------- Temporary Combinational Step Variables ----------------
+  reg signed [3:0] next_dx;
+  reg signed [3:0] next_dy;
+  reg [9:0] bx, by;
+  reg hit_paddle;
+  reg hit_brick;
+  reg [9:0] paddle_hit_offset;
+
+  integer i;
+
+  // ---------------- Game Physics & State Updates ----------------
+  always @(posedge clk) begin
+    if (~rst_n) begin
+      paddle_x    <= (H_DISPLAY - PADDLE_W) / 2;     // 288
+      ball_x      <= (H_DISPLAY - BALL_SIZE) / 2;    // 317
+      ball_y      <= (V_DISPLAY - BALL_SIZE) / 2;    // 237
+      ball_dx     <= BALL_SPEED;                     // +2
+      ball_dy     <= -BALL_SPEED;                    // -2
       brick_alive <= {BRICK_COUNT{1'b1}};
     end else if (frame_tick) begin
       
-      // Temporary state variables for combinational step calculations
-      reg signed [3:0] next_dx;
-      reg signed [3:0] next_dy;
-      reg [9:0] bx, by;
-      reg hit_paddle;
-      reg hit_brick;
-      reg [9:0] paddle_hit_offset;
-      reg [9:0] ball_center_x;
-      reg [9:0] paddle_center_x;
-
-      next_dx = ball_dx;
-      next_dy = ball_dy;
+      // Defaults for this frame step
+      next_dx    = ball_dx;
+      next_dy    = ball_dy;
       hit_paddle = 1'b0;
       hit_brick  = 1'b0;
 
-      // --- Autonomous AI Paddle Control ---
-      ball_center_x   = ball_x + (BALL_SIZE / 2);
-      paddle_center_x = paddle_x + (PADDLE_W / 2);
-
-      if (ball_center_x < paddle_center_x && paddle_x >= PADDLE_SPEED) begin
+      // --- Manual Player Paddle Control (Latest Input Priority) ---
+      if (btn_left_sync && btn_right_sync) begin
+        // Both buttons held: move based on the latest button pressed
+        if (last_dir == 1'b0 && paddle_x >= PADDLE_SPEED)
+          paddle_x <= paddle_x - PADDLE_SPEED;
+        else if (last_dir == 1'b1 && paddle_x < (H_DISPLAY - PADDLE_W - PADDLE_SPEED))
+          paddle_x <= paddle_x + PADDLE_SPEED;
+      end else if (btn_left_sync && paddle_x >= PADDLE_SPEED) begin
         paddle_x <= paddle_x - PADDLE_SPEED;
-      end else if (ball_center_x > paddle_center_x && paddle_x < (H_DISPLAY - PADDLE_W - PADDLE_SPEED)) begin
+      end else if (btn_right_sync && paddle_x < (H_DISPLAY - PADDLE_W - PADDLE_SPEED)) begin
         paddle_x <= paddle_x + PADDLE_SPEED;
       end
 
@@ -122,7 +162,7 @@ module tt_um_brick_breaker (
          (ball_x <= paddle_x + PADDLE_W)) begin
         
         hit_paddle = 1'b1;
-        next_dy = -BALL_SPEED; // Always bounce upward
+        next_dy    = -BALL_SPEED; // Bounce upward
 
         if (ball_x < paddle_x)
           paddle_hit_offset = 0;
@@ -155,16 +195,16 @@ module tt_um_brick_breaker (
       end
 
       // --- Ball Reset / Level Clear / Position Update ---
-      if (ball_y + BALL_SIZE >= V_DISPLAY || brick_alive == 0) begin
-        ball_x      <= H_DISPLAY/2 - BALL_SIZE/2;
-        ball_y      <= V_DISPLAY/2;
+      if ((ball_y + BALL_SIZE >= V_DISPLAY) || (brick_alive == 0)) begin
+        ball_x      <= (H_DISPLAY - BALL_SIZE) / 2;
+        ball_y      <= (V_DISPLAY - BALL_SIZE) / 2;
         ball_dx     <= BALL_SPEED;
         ball_dy     <= -BALL_SPEED;
         if (brick_alive == 0)
           brick_alive <= {BRICK_COUNT{1'b1}};
       end else begin
-        ball_x  <= ball_x + next_dx;
-        ball_y  <= ball_y + next_dy;
+        ball_x  <= $unsigned($signed({1'b0, ball_x}) + $signed(next_dx));
+        ball_y  <= $unsigned($signed({1'b0, ball_y}) + $signed(next_dy));
         ball_dx <= next_dx;
         ball_dy <= next_dy;
       end
@@ -197,7 +237,7 @@ module tt_um_brick_breaker (
     r = 0; g = 0; b = 0;
     if (video_active) begin
       if (ball_on) begin
-        r = 1; g = 1; b = 1;              // White ball
+        r = 1; g = 1; b = 1;               // White ball
       end else if (paddle_on) begin
         g = 1; b = 1;                     // Cyan paddle
       end else if (brick_on) begin
