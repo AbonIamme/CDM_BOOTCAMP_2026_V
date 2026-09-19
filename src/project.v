@@ -136,16 +136,18 @@ module tt_um_brick_breaker (
       if (ball_dy < 0 && ball_y <= BALL_SPEED)
         new_dy = -ball_dy;
 
-      // paddle bounce: Look ahead tracking (will it cross PADDLE_Y next step?)
+      // Reset hit flag for this frame tick
+      hit_this_frame = 1'b0;
+
+      // paddle bounce: Look ahead tracking (checks overlap with paddle area)
       if (ball_dy > 0 &&
           (ball_y + BALL_SIZE >= PADDLE_Y) && (ball_y <= PADDLE_Y + PADDLE_H) &&
           (ball_x + BALL_SIZE >= paddle_x) && (ball_x <= paddle_x + PADDLE_W)) begin
-        new_dy = -ball_dy;
+        new_dy = -BALL_SPEED; // Force direction UP completely independent of state
+        hit_this_frame = 1'b1; // Mark hit to bypass brick checks this frame
       end
 
       // brick collisions (Yosys Synthesizable Loop)
-      hit_this_frame = 1'b0; // Reset flag at the start of the frame tick
-
       for (i = 0; i < BRICK_COUNT; i = i + 1) begin
         if (brick_alive[i] && !hit_this_frame) begin
           bx = BRICK_START_X + (i % BRICK_COLS) * (BRICK_W + BRICK_GAP);
@@ -153,12 +155,11 @@ module tt_um_brick_breaker (
           if (ball_x + BALL_SIZE >= bx && ball_x <= bx + BRICK_W &&
               ball_y + BALL_SIZE >= by && ball_y <= by + BRICK_H) begin
             brick_alive[i] <= 1'b0;
-            new_dy = -ball_dy;
+            new_dy = -new_dy; // Reverse current calculated direction cleanly
             hit_this_frame = 1'b1; // Flag ensures other iterations are ignored
           end
         end
       end
-
 
       // --- ball lost off bottom, or level cleared: respawn ---
       if (ball_y + BALL_SIZE >= V_DISPLAY || brick_alive == 0) begin
@@ -175,8 +176,7 @@ module tt_um_brick_breaker (
         ball_dx <= new_dx;
         ball_dy <= new_dy;
       end
-    end
-  end
+
 
 
   // ---------------- rendering ----------------
