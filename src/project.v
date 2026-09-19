@@ -139,12 +139,12 @@ module tt_um_brick_breaker (
       // Reset hit flag for this frame tick
       hit_this_frame = 1'b0;
 
-      // paddle bounce: Look ahead tracking (checks overlap with paddle area)
+      // Directional Plane Bounce: Ensures hit registers cleanly 
       if (ball_dy > 0 &&
-          (ball_y + BALL_SIZE >= PADDLE_Y) && (ball_y <= PADDLE_Y + PADDLE_H) &&
+          (ball_y + BALL_SIZE >= PADDLE_Y) && (ball_y + BALL_SIZE <= PADDLE_Y + PADDLE_H + BALL_SPEED) &&
           (ball_x + BALL_SIZE >= paddle_x) && (ball_x <= paddle_x + PADDLE_W)) begin
-        new_dy         = -BALL_SPEED; // Force direction UP completely independent of state
-        hit_this_frame = 1'b1;        // Mark hit to bypass brick checks this frame
+        new_dy         = -BALL_SPEED; // Send ball upward
+        hit_this_frame = 1'b1;        // Disable brick hits this frame
       end
 
       // brick collisions (Yosys Synthesizable Loop)
@@ -155,8 +155,8 @@ module tt_um_brick_breaker (
           if (ball_x + BALL_SIZE >= bx && ball_x <= bx + BRICK_W &&
               ball_y + BALL_SIZE >= by && ball_y <= by + BRICK_H) begin
             brick_alive[i] <= 1'b0;
-            new_dy         = -new_dy; // Reverse current calculated direction cleanly
-            hit_this_frame = 1'b1;    // Flag ensures other iterations are ignored
+            new_dy         = -new_dy; // Reverse direction clean
+            hit_this_frame = 1'b1;    // Ignore remaining array passes
           end
         end
       end
@@ -170,7 +170,7 @@ module tt_um_brick_breaker (
         if (brick_alive == 0)
           brick_alive <= {BRICK_COUNT{1'b1}};
       end else begin
-        // Apply calculated updates directly to positions to clear boundary limits
+        // Apply position translation out of boundary lock zone
         ball_x  <= ball_x + new_dx;
         ball_y  <= ball_y + new_dy;
         ball_dx <= new_dx;
